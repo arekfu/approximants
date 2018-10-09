@@ -1,0 +1,7 @@
+[package]
+name = "approximants"
+version = "0.1.0"
+authors = ["Davide Mancusi <davide.mancusi@cea.fr>"]
+
+[dependencies]
+num-traits = "0.2"
