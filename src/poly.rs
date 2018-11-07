@@ -18,6 +18,18 @@ impl<T: Copy> Poly<T> {
     }
 }
 
+impl<T: Float> Poly<T> {
+    /// Returns the powers of `x` up to the degree of the polynomial
+    fn powers(&self, x: T) -> Vec<T> {
+        let mut pow = cast(1.).unwrap();
+        self.coeffs.iter().map(|_coeff| {
+            let this = pow;
+            pow = pow * x;
+            this
+        }).collect()
+    }
+}
+
 impl<T: PartialEq> PartialEq for Poly<T> {
     fn eq(&self, rhs: &Poly<T>) -> bool {
         self.coeffs == rhs.coeffs
@@ -53,13 +65,9 @@ impl<T: Float> Derive for Poly<T> {
 impl<T: Float> Eval for Poly<T> {
     type Var = T;
     fn eval(&self, x: T) -> T {
-        let mut pow: T = cast(1.).unwrap();
-        let mut result: T = cast(0.).unwrap();
-        for coeff in &self.coeffs {
-            result = result + pow * *coeff;
-            pow = pow * x;
-        }
-        result
+        self.coeffs.iter()
+            .zip(self.powers(x).iter())
+            .fold(cast(0.).unwrap(), |acc, (&coeff, &pow)| acc + coeff*pow)
     }
 }
 
