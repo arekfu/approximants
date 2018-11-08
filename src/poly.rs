@@ -72,7 +72,7 @@ impl<T: Float> Eval for Poly<T> {
             coeffs => coeffs[0] + coeffs[1..]
                 .iter()
                 .zip(self.powers(x).iter())
-                .fold(cast(0.).unwrap(), |acc, (&coeff, &pow)| acc + coeff * pow)
+                .fold(cast(0.).unwrap(), |acc, (&coeff, &pow)| pow.mul_add(coeff, acc))
         }
     }
 }
@@ -213,10 +213,9 @@ mod tests {
 
     #[test]
     fn test_integrate() {
-        let tolerance = 1e-10;
         let poly = Poly::new(&[-2., 0., 1.]); // x^2 - 2
         let integral = integrate(&poly, 0., 1.);
-        assert!(Float::abs(integral - 1. / 3. + 2.) < tolerance);
+        assert_relative_eq!(integral, 1./3. - 2.);
     }
 
     prop_compose! {
