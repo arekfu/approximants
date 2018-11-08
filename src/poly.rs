@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter, Result};
 
 use nalgebra::{DMatrix, DVector, Real};
 use num_traits::{cast, Float};
@@ -9,6 +10,32 @@ use super::integrate::Integrate;
 #[derive(Debug, PartialEq)]
 pub struct Poly<T> {
     coeffs: Vec<T>,
+}
+
+impl<T: Display> Display for Poly<T> {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        match &self.coeffs[..] {
+            [] => write!(f, "0"),
+            [x] => write!(f, "{}", x),
+            coeffs => {
+                write!(f, "{} + ", coeffs[0])?;
+                fmt_rest(f, &coeffs[1..])
+            }
+        }
+    }
+}
+
+fn fmt_rest<T: Display>(f: &mut Formatter, coeffs: &[T]) -> Result {
+    let mut iter = coeffs.iter();
+    if let Some(coeff) = iter.next() {
+        write!(f, "{} x", coeff)?;
+    }
+    let mut power = 2;
+    iter.for_each(|coeff| {
+        write!(f, " + {} x^{}", coeff, power);
+        power += 1;
+    });
+    Ok(())
 }
 
 impl<T: Copy> Poly<T> {
@@ -104,6 +131,12 @@ mod tests {
     use super::super::integrate::integrate;
     use super::*;
     use proptest::prelude::*;
+
+    #[test]
+    fn test_display() {
+        let poly = Poly::new(&[1., 2., 3.]); // 1 + 2x + 3x^2
+        assert_eq!(format!("{}", poly), "1 + 2 x + 3 x^2");
+    }
 
     #[test]
     fn test_eval() {
