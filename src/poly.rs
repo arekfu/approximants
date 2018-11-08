@@ -1,5 +1,7 @@
-use num_traits::{cast, Float};
 use std::cmp::PartialEq;
+
+use nalgebra::{DMatrix, DVector, Real};
+use num_traits::{cast, Float};
 
 use super::derive::Derive;
 use super::eval::Eval;
@@ -19,14 +21,52 @@ impl<T: Copy> Poly<T> {
 }
 
 impl<T: Float> Poly<T> {
-    /// Returns the powers of `x` up to the degree of the polynomial
+    /// Returns the powers of `x` from x^1 up to x^(the degree of the polynomial)
     fn powers(&self, x: T) -> Vec<T> {
-        let mut pow = cast(1.).unwrap();
-        self.coeffs.iter().map(|_coeff| {
-            let this = pow;
-            pow = pow * x;
-            this
-        }).collect()
+        Poly::powers_n(x, self.coeffs.len() - 1)
+    }
+
+    /// Returns the powers of `x` from x^1 to x^n
+    fn powers_n(x: T, n: usize) -> Vec<T> {
+        let mut pow = x;
+        (1..n + 1)
+            .map(|_i| {
+                let this = pow;
+                pow = pow * x;
+                this
+            }).collect()
+    }
+}
+
+impl<T: Float> Eval for Poly<T> {
+    type Var = T;
+    fn eval(&self, x: T) -> T {
+        self.coeffs[0] + self.coeffs[1..]
+            .iter()
+            .zip(self.powers(x).iter())
+            .fold(cast(0.).unwrap(), |acc, (&coeff, &pow)| acc + coeff * pow)
+    }
+}
+
+impl<T: Float + Real> Poly<T> {
+    pub fn interpolate(xs: &[T], ys: &[T]) -> Option<Poly<T>> {
+        let degree = xs.len() - 1;
+        let rows: Vec<Vec<T>> = xs
+            .iter()
+            .map(|x| {
+                let mut vec = Vec::new();
+                vec.push(cast(1.).unwrap());
+                vec.extend(Poly::powers_n(*x, degree).iter());
+                vec
+            }).collect();
+        let matrix = DMatrix::from_fn(degree + 1, degree + 1, |i, j| rows[i][j]);
+        let b: DVector<T> = DVector::from_fn(degree + 1, |i, _j| ys[i]);
+        eprintln!("rows: {:?}", rows);
+        eprintln!("matrix: {}\nb: {}", matrix, b);
+        matrix
+            .lu()
+            .solve(&b)
+            .map(|solution| Poly::new(solution.as_slice()))
     }
 }
 
@@ -62,20 +102,12 @@ impl<T: Float> Derive for Poly<T> {
     }
 }
 
-impl<T: Float> Eval for Poly<T> {
-    type Var = T;
-    fn eval(&self, x: T) -> T {
-        self.coeffs.iter()
-            .zip(self.powers(x).iter())
-            .fold(cast(0.).unwrap(), |acc, (&coeff, &pow)| acc + coeff*pow)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::derive::newton_raphson;
     use super::super::integrate::integrate;
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn test_eval() {
@@ -138,10 +170,48 @@ mod tests {
     }
 
     #[test]
+    fn test_powers_n() {
+        assert_eq!(Poly::powers_n(0., 3), vec![0., 0., 0.]);
+        assert_eq!(Poly::powers_n(1., 3), vec![1., 1., 1.]);
+        assert_eq!(Poly::powers_n(2., 3), vec![2., 4., 8.]);
+    }
+
+    #[test]
     fn test_integrate() {
         let tolerance = 1e-10;
         let poly = Poly::new(&[-2., 0., 1.]); // x^2 - 2
         let integral = integrate(&poly, 0., 1.);
-        assert!((integral - 1. / 3. + 2.).abs() < tolerance);
+        assert!(Float::abs(integral - 1. / 3. + 2.) < tolerance);
     }
+
+    prop_compose! {
+        fn points()(xs in prop::collection::vec(-1e1f64..1e1f64, 1..11)
+                    .prop_map(|mut xs| {
+                        xs.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+                        xs.dedup();
+                        xs
+                    }))
+            (ys in prop::collection::vec(-1e1f64..1e1f64, xs.len()), xs in Just(xs))
+                -> (Vec<f64>, Vec<f64>) {
+                    (xs, ys)
+                }
+    }
+
+    proptest! {
+        #[test]
+        fn test_interpolate(pts in points()) {
+            let tolerance = 1e-5;
+            let (xs, ys): (Vec<f64>, _) = pts;
+            let poly = match Poly::interpolate(&xs, &ys) {
+                Some(pol) => pol,
+                None => Poly::new(&[0.0])
+            };
+            for (x, y) in xs.iter().zip(ys.iter()) {
+                let eval = poly.eval(*x);
+                prop_assert!((eval- *y).abs() < tolerance,
+                "poly: {:?}\neval: {}\nexpected: {}", poly, eval, *y);
+            }
+        }
+    }
+
 }

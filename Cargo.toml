@@ -4,4 +4,9 @@ version = "0.1.0"
 authors = ["Davide Mancusi <davide.mancusi@cea.fr>"]
 
 [dependencies]
-num-traits = "0.2"
+num-traits = "0.2.0"
+nalgebra = "0.16.0"
+
+[dev-dependencies]
+proptest = "0.8.0"
+approx = "0.3.0"
