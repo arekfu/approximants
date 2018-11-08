@@ -1,4 +1,3 @@
-use std::cmp::PartialEq;
 
 use nalgebra::{DMatrix, DVector, Real};
 use num_traits::{cast, Float};
@@ -7,7 +6,7 @@ use super::derive::Derive;
 use super::eval::Eval;
 use super::integrate::Integrate;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Poly<T> {
     coeffs: Vec<T>,
 }
@@ -67,12 +66,6 @@ impl<T: Float + Real> Poly<T> {
             .lu()
             .solve(&b)
             .map(|solution| Poly::new(solution.as_slice()))
-    }
-}
-
-impl<T: PartialEq> PartialEq for Poly<T> {
-    fn eq(&self, rhs: &Poly<T>) -> bool {
-        self.coeffs == rhs.coeffs
     }
 }
 
