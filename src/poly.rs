@@ -40,10 +40,13 @@ impl<T: Float> Poly<T> {
 impl<T: Float> Eval for Poly<T> {
     type Var = T;
     fn eval(&self, x: T) -> T {
-        self.coeffs[0] + self.coeffs[1..]
-            .iter()
-            .zip(self.powers(x).iter())
-            .fold(cast(0.).unwrap(), |acc, (&coeff, &pow)| acc + coeff * pow)
+        match &self.coeffs[..] {
+            [] => cast(0.).unwrap(),
+            coeffs => coeffs[0] + coeffs[1..]
+                .iter()
+                .zip(self.powers(x).iter())
+                .fold(cast(0.).unwrap(), |acc, (&coeff, &pow)| acc + coeff * pow)
+        }
     }
 }
 
@@ -110,6 +113,12 @@ mod tests {
         assert_eq!(poly.eval(0.), 1.);
         assert_eq!(poly.eval(1.), 6.);
         assert_eq!(poly.eval(2.), 17.);
+        let poly0 = Poly::new(&[]); // 0
+        assert_eq!(poly0.eval(0.), 0.);
+        assert_eq!(poly0.eval(1.), 0.);
+        let poly0 = Poly::new(&[1.]); // 1
+        assert_eq!(poly0.eval(0.), 1.);
+        assert_eq!(poly0.eval(1.), 1.);
     }
 
     #[test]
