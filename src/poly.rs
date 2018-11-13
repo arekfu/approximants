@@ -46,6 +46,12 @@ impl<T: Copy> Poly<T> {
     }
 }
 
+impl<T> Poly<T> {
+    pub fn degree(&self) -> usize {
+        self.coeffs.len() - 1
+    }
+}
+
 impl<T: Float> Poly<T> {
     /// Returns the powers of `x` from x^1 up to x^(the degree of the polynomial)
     fn powers(&self, x: T) -> Vec<T> {
@@ -69,10 +75,14 @@ impl<T: Float> Eval for Poly<T> {
     fn eval(&self, x: T) -> T {
         match &self.coeffs[..] {
             [] => cast(0.).unwrap(),
-            coeffs => coeffs[0] + coeffs[1..]
-                .iter()
-                .zip(self.powers(x).iter())
-                .fold(cast(0.).unwrap(), |acc, (&coeff, &pow)| pow.mul_add(coeff, acc))
+            coeffs => {
+                coeffs[0] + coeffs[1..]
+                    .iter()
+                    .zip(self.powers(x).iter())
+                    .fold(cast(0.).unwrap(), |acc, (&coeff, &pow)| {
+                        pow.mul_add(coeff, acc)
+                    })
+            }
         }
     }
 }
@@ -96,6 +106,11 @@ impl<T: Float + Real> Poly<T> {
             .lu()
             .solve(&b)
             .map(|solution| Poly::new(solution.as_slice()))
+    }
+
+    pub fn interpolate_fun(xs: &[T], fun: &Fn(T) -> T) -> Option<Poly<T>> {
+        let ys: Vec<T> = xs.iter().map(|x| fun(*x)).collect();
+        Poly::interpolate(xs, &ys[..])
     }
 }
 
@@ -130,7 +145,78 @@ mod tests {
     use super::super::derive::newton_raphson;
     use super::super::integrate::integrate;
     use super::*;
+    use approx::{AbsDiffEq, RelativeEq};
     use proptest::prelude::*;
+
+    impl<T> AbsDiffEq for Poly<T>
+    where
+        T: AbsDiffEq + Clone + Float,
+        [T]: AbsDiffEq,
+    {
+        type Epsilon = <[T] as AbsDiffEq>::Epsilon;
+        fn default_epsilon() -> Self::Epsilon {
+            <[T] as AbsDiffEq>::default_epsilon()
+        }
+
+        fn abs_diff_eq(&self, other: &Self, epsilon: Self::Epsilon) -> bool {
+            let self_len = self.coeffs.len();
+            let other_len = other.coeffs.len();
+            let mut lhs_vec;
+            let mut rhs_vec;
+            let lhs: &[T] = if self_len < other_len {
+                lhs_vec = self.coeffs.clone();
+                lhs_vec.resize(other_len, cast(0.0).unwrap());
+                &lhs_vec[..]
+            } else {
+                &self.coeffs[..]
+            };
+            let rhs: &[T] = if self_len > other_len {
+                rhs_vec = other.coeffs.clone();
+                rhs_vec.resize(self_len, cast(0.0).unwrap());
+                &rhs_vec[..]
+            } else {
+                &other.coeffs[..]
+            };
+            lhs[..].abs_diff_eq(&rhs[..], epsilon)
+        }
+    }
+
+    impl<T: RelativeEq> RelativeEq for Poly<T>
+    where
+        T: Clone + Float,
+        <T as AbsDiffEq>::Epsilon: Clone,
+    {
+        fn default_max_relative() -> Self::Epsilon {
+            T::default_max_relative()
+        }
+
+        fn relative_eq(
+            &self,
+            other: &Self,
+            epsilon: Self::Epsilon,
+            max_relative: Self::Epsilon,
+        ) -> bool {
+            let self_len = self.coeffs.len();
+            let other_len = other.coeffs.len();
+            let mut lhs_vec;
+            let mut rhs_vec;
+            let lhs: &[T] = if self_len < other_len {
+                lhs_vec = self.coeffs.clone();
+                lhs_vec.resize(other_len, cast(0.0).unwrap());
+                &lhs_vec[..]
+            } else {
+                &self.coeffs[..]
+            };
+            let rhs: &[T] = if self_len > other_len {
+                rhs_vec = other.coeffs.clone();
+                rhs_vec.resize(self_len, cast(0.0).unwrap());
+                &rhs_vec[..]
+            } else {
+                &other.coeffs[..]
+            };
+            lhs[..].relative_eq(&rhs[..], epsilon, max_relative)
+        }
+    }
 
     #[test]
     fn test_display() {
@@ -215,26 +301,38 @@ mod tests {
     fn test_integrate() {
         let poly = Poly::new(&[-2., 0., 1.]); // x^2 - 2
         let integral = integrate(&poly, 0., 1.);
-        assert_relative_eq!(integral, 1./3. - 2.);
+        assert_abs_diff_eq!(integral, 1. / 3. - 2., epsilon = 1e-5);
     }
 
     prop_compose! {
-        fn points()(xs in prop::collection::vec(-1e1f64..1e1f64, 1..11)
-                    .prop_map(|mut xs| {
-                        xs.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
-                        xs.dedup();
-                        xs
-                    }))
+        fn abscissae()(xs in prop::collection::vec(-1e1f64..1e1f64, 1..11)
+                       .prop_map(|mut xs| {
+                           xs.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+                           xs.dedup();
+                           xs
+                       }))
+        -> Vec<f64> {
+            xs
+        }
+    }
+
+    prop_compose! {
+        fn points()(xs in abscissae())
             (ys in prop::collection::vec(-1e1f64..1e1f64, xs.len()), xs in Just(xs))
                 -> (Vec<f64>, Vec<f64>) {
                     (xs, ys)
                 }
     }
 
+    prop_compose! {
+        fn polys()(coeffs in prop::collection::vec(-1e1f64..1e1f64, 1..11)) -> Poly<f64> {
+            Poly { coeffs }
+        }
+    }
+
     proptest! {
         #[test]
         fn test_interpolate(pts in points()) {
-            let tolerance = 1e-5;
             let (xs, ys): (Vec<f64>, _) = pts;
             let poly = match Poly::interpolate(&xs, &ys) {
                 Some(pol) => pol,
@@ -242,8 +340,23 @@ mod tests {
             };
             for (x, y) in xs.iter().zip(ys.iter()) {
                 let eval = poly.eval(*x);
-                prop_assert!((eval- *y).abs() < tolerance,
-                "poly: {:?}\neval: {}\nexpected: {}", poly, eval, *y);
+                prop_assert!(abs_diff_eq!(eval, y, epsilon=1e-3),
+                "\npoly: {:?}\neval: {}\nexpected: {}\ndiff: {:e}\n", poly, eval, *y, eval-*y);
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn test_interpolate_fun(poly in polys()) {
+            let deg = poly.degree();
+            let mut xs = Vec::with_capacity(deg+1);
+            xs.extend((0..deg+1).map(|i| i as f64 - 0.5*deg as f64));
+            let interp = Poly::interpolate_fun(&xs, &|x: f64| poly.eval(x));
+            match interp {
+                Some(interp_poly) => prop_assert!(relative_eq!(poly, interp_poly, epsilon=1e-5, max_relative=1e-5),
+                "\npoly: {:?}\ninterp_poly: {:?}\nxs: {:?}\n", poly, interp_poly, xs),
+                None => assert!(false)
             }
         }
     }
